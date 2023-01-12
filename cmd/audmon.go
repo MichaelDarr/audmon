@@ -90,9 +90,9 @@ func Execute() {
 			// volume is a value between 0 (minimum) and 1 (maximum).
 			// The observed maximum (clipping) is 240, but the docs indicate that it should be 255. This
 			// is likely a configuration issue.
-			// The volume range is scaled down such that all values below 100 are collapsed to 0
+			// The volume range is scaled down such that all values below 120 are collapsed to 0
 			// (apparent silence), as the level very rarely drops that low.
-			volume := math.Max(math.Min(float64(maxSample-100)/140, 1), 0)
+			volume := math.Max(math.Min(float64(maxSample-120)/120, 1), 0)
 			// Smooth out sudden bar movement
 			volumeDisplayed := volume
 			if volumeDisplayed > prevVolumeDisplayed {
