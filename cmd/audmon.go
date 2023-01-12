@@ -17,10 +17,13 @@ import (
 )
 
 const (
-	barColor                = tcell.ColorGreen
+	// backgroundColorClipping is a background color which indicates recent clipping.
 	backgroundColorClipping = tcell.ColorRed
-	framesPerSecond         = 60
-	// volumeClipWarningDuration indicates how long the bar will red after a clip occurs.
+	// barColor is the color of the volume indication bar.
+	barColor = tcell.ColorGreen
+	// framesPerSecond is the number of times per second that the tui is updated.
+	framesPerSecond = 60
+	// volumeClipWarningDuration is the duration for which clipping is indicated appear it occurs.
 	volumeClipWarningDuration = time.Second * 3
 )
 
@@ -154,6 +157,31 @@ func Execute() {
 	os.Exit(0)
 }
 
+type recentClippingTracker struct {
+	ClippedRecently    bool
+	cancelPendingReset func()
+}
+
+// IndicateClippingOccured is called to indicate that audio clipping has been detected.
+// `recentClippingTracker.ClippedRecently` remains true for `volumeClipWarningDuration` after
+// clipping occurs.
+func (c *recentClippingTracker) IndicateClippingOccured() {
+	if c.cancelPendingReset != nil {
+		c.cancelPendingReset()
+	}
+	c.ClippedRecently = true
+	cancelled := false
+	c.cancelPendingReset = func() {
+		cancelled = true
+	}
+	go func() {
+		time.Sleep(volumeClipWarningDuration)
+		if !cancelled {
+			c.ClippedRecently = false
+		}
+	}()
+}
+
 type flagInfo struct {
 	fallback bool
 	usage    string
@@ -171,28 +199,4 @@ func init() {
 	flagHorizontalInfo := flagInfo{false, "orient the monitor horizontally"}
 	flag.BoolVar(&flagHorizontal, "horizontal", flagHorizontalInfo.fallback, flagHorizontalInfo.usage)
 	flag.BoolVar(&flagHorizontal, "h", flagHorizontalInfo.fallback, flagHorizontalInfo.usageShorthand())
-}
-
-type recentClippingTracker struct {
-	ClippedRecently    bool
-	cancelPendingReset func()
-}
-
-// IndicateClippingOccured is called to indicate that audio clipping has been detected.
-// `recentClippingTracker.ClippedRecently` remains true for 3 seconds after clipping occurs.
-func (c *recentClippingTracker) IndicateClippingOccured() {
-	if c.cancelPendingReset != nil {
-		c.cancelPendingReset()
-	}
-	c.ClippedRecently = true
-	cancelled := false
-	c.cancelPendingReset = func() {
-		cancelled = true
-	}
-	go func() {
-		time.Sleep(volumeClipWarningDuration)
-		if !cancelled {
-			c.ClippedRecently = false
-		}
-	}()
 }
