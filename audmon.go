@@ -89,7 +89,7 @@ func main() {
 	signal.Notify(done, os.Interrupt, syscall.SIGINT, syscall.SIGTERM)
 	go func() {
 		if err := app.SetRoot(monitorBar, true).SetFocus((monitorBar)).Run(); err != nil {
-			log.Printf("audmon closed unsuccessfully - %v", err)
+			log.Printf("closed unsuccessfully: %v", err)
 		}
 		done <- syscall.SIGTERM
 	}()
