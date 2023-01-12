@@ -85,7 +85,7 @@ func Execute() {
 				}
 			}
 
-			// When the volume clips, warn the user by changing the bar color.
+			// When the volume clips, warn the user.
 			if maxSample == 240 {
 				clippingTracker.IndicateClippingOccured()
 			}
