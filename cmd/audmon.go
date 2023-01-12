@@ -17,11 +17,16 @@ import (
 )
 
 const (
-	framesPerSecond = 60
+	barColor                = tcell.ColorGreen
+	backgroundColorClipping = tcell.ColorRed
+	framesPerSecond         = 60
+	// volumeClipWarningDuration indicates how long the bar will red after a clip occurs.
+	volumeClipWarningDuration = time.Second * 3
 )
 
 var (
-	flagVersion bool
+	flagHorizontal bool
+	flagVersion    bool
 )
 
 func Execute() {
@@ -46,11 +51,19 @@ func Execute() {
 
 	// Set up tui app
 	app := tview.NewApplication()
-	monitorBar := tview.NewFlex().SetDirection(tview.FlexRow)
+	monitorBarDirection := tview.FlexRow
+	if flagHorizontal {
+		monitorBarDirection = tview.FlexColumn
+	}
+	monitorBar := tview.NewFlex().SetDirection(monitorBarDirection)
 	monitorBarFiller := tview.NewBox()
-	monitorBar.
-		AddItem(monitorBarFiller, 0, 1, false).
-		AddItem(tview.NewBox().SetBackgroundColor(tcell.Color103), 0, 1, false)
+	if !flagHorizontal {
+		monitorBar.AddItem(monitorBarFiller, 0, 1, false)
+	}
+	monitorBar.AddItem(tview.NewBox().SetBackgroundColor(barColor), 0, 1, false)
+	if flagHorizontal {
+		monitorBar.AddItem(monitorBarFiller, 0, 1, false)
+	}
 
 	// Configure audio capture device
 	captureDeviceConfig := malgo.DefaultDeviceConfig(malgo.Capture)
@@ -58,6 +71,7 @@ func Execute() {
 	captureDeviceConfig.Alsa.NoMMap = 1
 	captureDeviceConfig.PeriodSizeInMilliseconds = uint32((time.Second / framesPerSecond).Milliseconds())
 	var prevVolumeDisplayed float64 = 0
+	clippingTracker := recentClippingTracker{}
 	device, err := malgo.InitDevice(ctx.Context, captureDeviceConfig, malgo.DeviceCallbacks{
 		Data: func(_, pSample []byte, _ uint32) {
 			// Find the loudest sample within the period
@@ -68,24 +82,51 @@ func Execute() {
 				}
 			}
 
+			// When the volume clips, warn the user by changing the bar color.
+			if maxSample == 240 {
+				clippingTracker.IndicateClippingOccured()
+			}
+
 			// volume is a value between 0 (minimum) and 1 (maximum).
-			// This value is scaled to loosely approximate the decibel curve.
-			volume := math.Min(math.Pow(float64(maxSample)/235, 2), 1)
-			// Throttle bar movement to roughly three times the length of the bar per second.
+			// The observed maximum (clipping) is 240, but the docs indicate that it should be 255. This
+			// is likely a configuration issue.
+			// The volume range is scaled down such that all values below 100 are collapsed to 0
+			// (apparent silence), as the level very rarely drops that low.
+			volume := math.Max(math.Min(float64(maxSample-100)/140, 1), 0)
+			// Smooth out sudden bar movement
 			volumeDisplayed := volume
 			if volumeDisplayed > prevVolumeDisplayed {
-				if volumeDisplayed-prevVolumeDisplayed > 0.05 {
-					volumeDisplayed = prevVolumeDisplayed + 0.05
+				extraVolume := volumeDisplayed - prevVolumeDisplayed
+				if extraVolume > 0.02 {
+					volumeDisplayed = prevVolumeDisplayed + extraVolume/3
 				}
-			} else if prevVolumeDisplayed-volumeDisplayed > 0.05 {
-				volumeDisplayed = prevVolumeDisplayed - 0.05
+			} else {
+				lostVolume := prevVolumeDisplayed - volumeDisplayed
+				if lostVolume > 0.02 {
+					volumeDisplayed = prevVolumeDisplayed - lostVolume/3
+				}
 			}
 			prevVolumeDisplayed = volumeDisplayed
 
-			// Adjust the volume bar
+			// Update bar
 			app.QueueUpdateDraw(func() {
-				_, _, _, barHeight := monitorBar.GetInnerRect()
-				monitorBar.ResizeItem(monitorBarFiller, int(math.Floor((1-volumeDisplayed)*float64(barHeight))), 0)
+				// Update background color to indicate whether the audio clipped recently
+				curBackgroundColor := monitorBarFiller.GetBackgroundColor()
+				if curBackgroundColor == backgroundColorClipping {
+					if !clippingTracker.ClippedRecently {
+						monitorBarFiller.SetBackgroundColor(tcell.ColorDefault)
+					}
+				} else if clippingTracker.ClippedRecently {
+					monitorBarFiller.SetBackgroundColor(backgroundColorClipping)
+				}
+
+				// Update bar length to indicate current volume
+				_, _, barWidth, barHeight := monitorBar.GetInnerRect()
+				barLength := barHeight
+				if flagHorizontal {
+					barLength = barWidth
+				}
+				monitorBar.ResizeItem(monitorBarFiller, int(math.Floor((1-volumeDisplayed)*float64(barLength))), 0)
 			})
 		},
 	})
@@ -126,4 +167,32 @@ func init() {
 	flagVersionInfo := flagInfo{false, "print version information"}
 	flag.BoolVar(&flagVersion, "version", flagVersionInfo.fallback, flagVersionInfo.usage)
 	flag.BoolVar(&flagVersion, "v", flagVersionInfo.fallback, flagVersionInfo.usageShorthand())
+
+	flagHorizontalInfo := flagInfo{false, "orient the monitor horizontally"}
+	flag.BoolVar(&flagHorizontal, "horizontal", flagHorizontalInfo.fallback, flagHorizontalInfo.usage)
+	flag.BoolVar(&flagHorizontal, "h", flagHorizontalInfo.fallback, flagHorizontalInfo.usageShorthand())
+}
+
+type recentClippingTracker struct {
+	ClippedRecently    bool
+	cancelPendingReset func()
+}
+
+// IndicateClippingOccured is called to indicate that audio clipping has been detected.
+// `recentClippingTracker.ClippedRecently` remains true for 3 seconds after clipping occurs.
+func (c *recentClippingTracker) IndicateClippingOccured() {
+	if c.cancelPendingReset != nil {
+		c.cancelPendingReset()
+	}
+	c.ClippedRecently = true
+	cancelled := false
+	c.cancelPendingReset = func() {
+		cancelled = true
+	}
+	go func() {
+		time.Sleep(volumeClipWarningDuration)
+		if !cancelled {
+			c.ClippedRecently = false
+		}
+	}()
 }
