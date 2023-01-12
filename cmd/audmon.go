@@ -18,9 +18,9 @@ import (
 
 const (
 	// backgroundColorClipping is a background color which indicates recent clipping.
-	backgroundColorClipping = tcell.ColorRed
+	backgroundColorClipping = tcell.ColorDarkRed
 	// barColor is the color of the volume indication bar.
-	barColor = tcell.ColorGreen
+	barColor = tcell.ColorGreenYellow
 	// framesPerSecond is the number of times per second that the tui is updated.
 	framesPerSecond = 60
 	// volumeClipWarningDuration is the duration for which clipping is indicated appear it occurs.
