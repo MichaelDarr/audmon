@@ -6,10 +6,11 @@ BIN := audmon
 DESTDIR :=
 GO ?= go
 PREFIX := /usr/local
+VERSION = $(shell cat VERSION)
 
 GOFLAGS :=
 EXTRA_GOFLAGS ?=
-LDFLAGS :=
+LDFLAGS := $(LDFLAGS) -X "github.com/MichaelDarr/audmon/internal.Version=$(VERSION)"
 
 .PHONY: default
 default: $(BIN)
